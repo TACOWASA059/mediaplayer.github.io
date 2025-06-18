@@ -26,9 +26,6 @@
         button:hover {
             background-color: #005fa3;
         }
-        #audio-track-controls label {
-            margin-right: 10px;
-        }
     </style>
 </head>
 <body>
@@ -46,6 +43,8 @@
         <button onclick="addAnnotation()" id="btn-add">Add</button>
         <button onclick="saveAnnotations()" id="btn-save">Save txt</button>
         <button onclick="copyAnnotations()" id="btn-copy">Copy</button>
+        <button onclick="sortAnnotations()" id="btn-sort">Sort</button>
+        <button onclick="clearAnnotations()" id="btn-clear">Clear All</button>
         <table id="annotation-table">
             <thead><tr><th id="th-play">Play</th><th id="th-time">Timestamp</th><th id="th-note">Note</th><th id="th-delete">Delete</th></tr></thead>
             <tbody id="annotation-body"></tbody>
@@ -64,6 +63,8 @@
             add: "項目を追加",
             save: "txtに保存",
             copy: "テキストでコピー",
+            sort: "タイムスタンプで並べ替え",
+            clear: "全消去",
             play: "再生",
             timestamp: "タイムスタンプ",
             note: "アノテーション",
@@ -76,6 +77,8 @@
             add: "Add",
             save: "Save txt",
             copy: "Copy",
+            sort: "Sort by Timestamp",
+            clear: "Clear All",
             play: "Play",
             timestamp: "Timestamp",
             note: "Note",
@@ -90,6 +93,8 @@
     document.getElementById("btn-add").textContent = t.add;
     document.getElementById("btn-save").textContent = t.save;
     document.getElementById("btn-copy").textContent = t.copy;
+    document.getElementById("btn-sort").textContent = t.sort;
+    document.getElementById("btn-clear").textContent = t.clear;
     document.getElementById("th-play").textContent = t.play;
     document.getElementById("th-time").textContent = t.timestamp;
     document.getElementById("th-note").textContent = t.note;
@@ -103,6 +108,10 @@
 
     let annotations = [];
     let prevTrackCount = -1;
+
+    function saveToLocal() {
+        localStorage.setItem("annotations", JSON.stringify(annotations));
+    }
 
     function updateAnnotationTable() {
         annotationBody.innerHTML = "";
@@ -128,20 +137,24 @@
         const t = new Date(video.currentTime * 1000).toISOString().substr(11, 8);
         annotations.push({ timestamp: t, note: "" });
         updateAnnotationTable();
+        saveToLocal();
     }
 
     function deleteAnnotation(index) {
         annotations.splice(index, 1);
         updateAnnotationTable();
+        saveToLocal();
     }
 
     function editTimestamp(index, value) {
         annotations[index].timestamp = value.trim();
         updateAnnotationTable();
+        saveToLocal();
     }
 
     function editNote(index, value) {
         annotations[index].note = value.trim();
+        saveToLocal();
     }
 
     function saveAnnotations() {
@@ -158,8 +171,27 @@
     function copyAnnotations() {
         const text = annotations.map(a => `${a.timestamp} ${a.note}`).join("\n");
         navigator.clipboard.writeText(text)
-            .then(() => alert("Copied to clipboard!"))
+            .then(() => alert(lang === "ja" ? "クリップボードにコピーしました！" : "Copied to clipboard!"))
             .catch(err => alert("Failed to copy: " + err));
+    }
+
+    function sortAnnotations() {
+        annotations.sort((a, b) => {
+            const toSeconds = (t) => {
+                const [h, m, s] = t.split(":").map(Number);
+                return h * 3600 + m * 60 + s;
+            };
+            return toSeconds(a.timestamp) - toSeconds(b.timestamp);
+        });
+        updateAnnotationTable();
+        saveToLocal();
+    }
+
+    function clearAnnotations() {
+        if (!confirm(lang === "ja" ? "本当にすべて削除しますか？" : "Are you sure you want to delete all annotations?")) return;
+        annotations = [];
+        updateAnnotationTable();
+        localStorage.removeItem("annotations");
     }
 
     function updateAudioTrackControls() {
@@ -217,40 +249,52 @@
                 return { timestamp, note: note.join(" ") };
             });
             updateAnnotationTable();
+            saveToLocal();
         };
         reader.readAsText(file);
     });
 
     document.addEventListener("dragover", e => e.preventDefault());
-document.addEventListener("drop", e => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
+    document.addEventListener("drop", e => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
 
-    if (file.name.endsWith(".txt")) {
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            let lines = evt.target.result.split(/\r?\n/);
-            if (lines[0]?.trim().toLowerCase() === "start") {
-                lines = lines.slice(1);
-            }
-            annotations = lines.filter(l => l.trim()).map(line => {
-                const [timestamp, ...note] = line.split(" ");
-                return { timestamp, note: note.join(" ") };
-            });
-            updateAnnotationTable();
-        };
-        reader.readAsText(file);
-    } else if (file.type.startsWith("video/")) {
-        video.src = URL.createObjectURL(file);
-    }
-});
+        if (file.name.endsWith(".txt")) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                let lines = evt.target.result.split(/\r?\n/);
+                if (lines[0]?.trim().toLowerCase() === "start") {
+                    lines = lines.slice(1);
+                }
+                annotations = lines.filter(l => l.trim()).map(line => {
+                    const [timestamp, ...note] = line.split(" ");
+                    return { timestamp, note: note.join(" ") };
+                });
+                updateAnnotationTable();
+                saveToLocal();
+            };
+            reader.readAsText(file);
+        } else if (file.type.startsWith("video/")) {
+            video.src = URL.createObjectURL(file);
+        }
+    });
 
     video.addEventListener("ended", () => {
         video.currentTime = 0;
     });
 
-    updateAnnotationTable();
+    window.addEventListener("load", () => {
+        const saved = localStorage.getItem("annotations");
+        if (saved) {
+            try {
+                annotations = JSON.parse(saved);
+                updateAnnotationTable();
+            } catch (e) {
+                console.warn("Failed to parse saved annotations.");
+            }
+        }
+    });
 </script>
 </body>
 </html>
